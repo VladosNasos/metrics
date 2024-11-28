@@ -1,0 +1,77 @@
+import unittest
+import json
+from collections import defaultdict
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+
+ORIGINAL_URL = 'https://en.wikipedia.org/wiki/Software_metric'
+CYCLES = 10
+
+
+class TestGetPerformance(unittest.TestCase):
+    def setUp(self):
+        self.url = ORIGINAL_URL
+        self.cycles = CYCLES
+        self.map_of_urls = defaultdict(list)
+        self.driver = None
+
+    def start_driver(self):
+        if not self.driver:
+            opts = webdriver.ChromeOptions()
+            opts.add_argument("--incognito")
+            self.driver = webdriver.Chrome(options=opts)
+
+    def stop_driver(self):
+        if self.driver:
+            self.driver.quit()
+            self.driver = None
+
+    def calculate_average(self, values):
+        non_zero_values = list(filter(lambda x: x != 0, values))
+        return sum(non_zero_values) / len(non_zero_values) if non_zero_values else 0
+
+    def save_to_file(self, data, file_path):
+        with open(file_path, 'w', encoding='utf8') as file:
+            json.dump(data, file, indent=4)
+
+    def test_performance(self):
+        # Collect performance data
+        self.start_driver()
+        for _ in range(self.cycles):
+            self.driver.get(self.url)
+            title = self.driver.find_element(By.CSS_SELECTOR, "#firstHeading > span")
+            self.assertIn('Software metric', title.text, "Page title mismatch")
+
+            script = "return window.performance.getEntries().map(x => [x.name, x.duration])"
+            data = self.driver.execute_script(script)
+
+            for key, value in data:
+                self.map_of_urls[key].append(value)
+
+        # Verify data collection
+        first_key = next(iter(self.map_of_urls))
+        self.assertEqual(len(self.map_of_urls[first_key]), self.cycles, "Unexpected number of cycles")
+
+        # Save raw data
+        self.save_to_file(self.map_of_urls, "./dataMap.json")
+
+        # Calculate averages
+        map_of_averages = {
+            key: self.calculate_average(values)
+            for key, values in self.map_of_urls.items()
+        }
+
+        # Verify averages
+        self.assertTrue(all(isinstance(avg, float) for avg in map_of_averages.values()), "Invalid average calculation")
+
+        # Save processed data
+        self.save_to_file(map_of_averages, "./processedMap.json")
+
+    def tearDown(self):
+        self.stop_driver()
+        print("done")
+
+
+if __name__ == "__main__":
+    unittest.main()
